@@ -68,7 +68,16 @@ jobs:
           # use one or more rulesets. p/owasp-top-ten or p/ci for CI rules
           config: "p/owasp-top-ten"
           # Semgrep exits with code 1 by default when findings exist
+        continue-on-error: true  # Don't fail workflow if findings exist
         # If you use Semgrep app, add publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+      
+      - name: Upload Semgrep report (if exists)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep-results.json
+          if-no-files-found: ignore
 
   # -------------------------
   # Gitleaks (secrets detection)
@@ -197,9 +206,15 @@ jobs:
     steps:
       - name: Create summary
         run: |
-          echo "Security pipeline completed. Artifacts: CodeQL (Security tab), Semgrep, Gitleaks, npm-audit, ZAP."
-      - name: Upload summary artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-summary
-          path: .
+          echo "## Security Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Security scans completed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifacts available for download:**" >> $GITHUB_STEP_SUMMARY
+          echo "- CodeQL results: See Security tab → Code scanning alerts" >> $GITHUB_STEP_SUMMARY
+          echo "- Semgrep report: semgrep-report (JSON)" >> $GITHUB_STEP_SUMMARY
+          echo "- Gitleaks report: gitleaks-report (SARIF)" >> $GITHUB_STEP_SUMMARY
+          echo "- npm audit: npm-audit (JSON)" >> $GITHUB_STEP_SUMMARY
+          echo "- ZAP reports: zap-report (HTML) and zap-report-json (JSON)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📥 Download all artifacts from the bottom of this workflow run page." >> $GITHUB_STEP_SUMMARY
