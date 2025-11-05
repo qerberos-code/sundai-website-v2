@@ -152,6 +152,8 @@ jobs:
             exit 0
           else
             echo "skip=false" >> $GITHUB_OUTPUT
+            echo "::notice::SITE_URL secret found. ZAP scan will run."
+            echo "Target URL: [hidden for security]" # Don't echo the actual URL
           fi
 
       - name: Run OWASP ZAP baseline
