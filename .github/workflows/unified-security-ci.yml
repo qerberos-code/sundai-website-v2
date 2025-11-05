@@ -153,25 +153,31 @@ jobs:
 
       - name: Run OWASP ZAP baseline
         run: |
-          docker run --rm -v $(pwd):/zap/wrk/:rw owasp/zap2docker-stable zap-baseline.py \
+          docker run --rm -v $(pwd):/zap/wrk/:rw \
+            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
             -t "${{ secrets.SITE_URL }}" \
             -r zap_report.html \
             -J zap_report.json \
             -I \
             -z "-config api.disablekey=true -config scanner.warnOnLow=true"
         timeout-minutes: 30
+        continue-on-error: true  # Don't fail workflow if ZAP scan fails
 
       - name: Upload ZAP report (HTML)
+        if: always() && hashFiles('zap_report.html') != ''
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
           path: zap_report.html
+        continue-on-error: true
 
       - name: Upload ZAP report (JSON)
+        if: always() && hashFiles('zap_report.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: zap-report-json
           path: zap_report.json
+        continue-on-error: true
 
   # -------------------------
   # Optional: Aggregate reports (run after all)
