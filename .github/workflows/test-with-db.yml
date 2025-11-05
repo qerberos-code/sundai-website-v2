@@ -9,6 +9,9 @@ on:
 jobs:
   test-with-db:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     env:
       NODE_ENV: test
       CI: true
