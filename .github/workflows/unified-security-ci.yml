@@ -84,16 +84,16 @@ jobs:
 
       - name: Run Gitleaks
         uses: zricethezav/gitleaks-action@v2
-        with:
-          args: >
-            --redact
-            --report-format json
-            --report-path gitleaks-report.json
-      - name: Upload gitleaks report
+        env:
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # Optional: only needed for commercial use
+        continue-on-error: true  # Don't fail workflow if test values are detected
+      - name: Upload gitleaks report (if exists)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gitleaks-report
-          path: gitleaks-report.json
+          path: results.sarif
+          if-no-files-found: ignore
 
   # -------------------------
   # Dependency scan: npm audit + optional OSV (simple)

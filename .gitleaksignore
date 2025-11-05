@@ -1,0 +1,5 @@
+# Ignore test workflow files with known dummy values
+# These contain intentionally dummy test credentials
+.github/workflows/test.yml
+.github/workflows/test-with-db.yml
+
