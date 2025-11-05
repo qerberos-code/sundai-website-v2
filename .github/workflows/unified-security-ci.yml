@@ -1,0 +1,190 @@
+name: "Unified Security CI (CodeQL + Semgrep + Gitleaks + Dependency + ZAP)"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 3 * * 1' # weekly Monday 03:00 UTC
+
+permissions:
+  contents: read
+  security-events: write  # allows CodeQL to post results to Security tab
+
+env:
+  # Optional default timeout for long-running jobs
+  ACTIONS_STEP_DEBUG: false
+
+jobs:
+
+  # -------------------------
+  # CodeQL (SAST) - GitHub Code Scanning integration
+  # -------------------------
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ "javascript-typescript" ] # change/add languages as needed
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # queries: security-and-quality   # optional
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "security"
+
+  # -------------------------
+  # Semgrep (fast rule-based SAST)
+  # -------------------------
+  semgrep:
+    name: Semgrep (OWASP + best-practices)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          # use one or more rulesets. p/owasp-top-ten or p/ci for CI rules
+          config: "p/owasp-top-ten"
+          # Semgrep exits with code 1 by default when findings exist
+        # If you use Semgrep app, add publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  # -------------------------
+  # Gitleaks (secrets detection)
+  # -------------------------
+  gitleaks:
+    name: Gitleaks (Secrets Scan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: zricethezav/gitleaks-action@v2
+        with:
+          args: >
+            --redact
+            --report-format json
+            --report-path gitleaks-report.json
+      - name: Upload gitleaks report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+
+  # -------------------------
+  # Dependency scan: npm audit + optional OSV (simple)
+  # -------------------------
+  dependency-scan:
+    name: Dependency Scan (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Install deps
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f yarn.lock ]; then
+            npm install
+          else
+            echo "No lockfile found. Running npm install"
+            npm install
+          fi
+
+      - name: Run npm audit (JSON)
+        run: |
+          npm audit --json > npm-audit.json || true
+          cat npm-audit.json
+      - name: Upload npm audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit
+          path: npm-audit.json
+
+  # -------------------------
+  # OWASP ZAP Baseline DAST against deployed site (SITE_URL)
+  # -------------------------
+  zap_scan:
+    name: OWASP ZAP Baseline Scan (DAST)
+    runs-on: ubuntu-latest
+    needs: [dependency-scan]   # run after basic checks (optional)
+    # Note: ZAP scan requires SITE_URL secret to be set in repository settings
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure SITE_URL secret exists
+        run: |
+          if [ -z "${{ secrets.SITE_URL }}" ]; then
+            echo "SITE_URL secret is not set. Skipping ZAP scan."
+            echo "::warning::ZAP scan requires SITE_URL secret to be set in repository settings"
+            exit 0  # Skip rather than fail if SITE_URL not set
+          fi
+
+      - name: Run OWASP ZAP baseline
+        run: |
+          docker run --rm -v $(pwd):/zap/wrk/:rw owasp/zap2docker-stable zap-baseline.py \
+            -t "${{ secrets.SITE_URL }}" \
+            -r zap_report.html \
+            -J zap_report.json \
+            -I \
+            -z "-config api.disablekey=true -config scanner.warnOnLow=true"
+        timeout-minutes: 30
+
+      - name: Upload ZAP report (HTML)
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap_report.html
+
+      - name: Upload ZAP report (JSON)
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report-json
+          path: zap_report.json
+
+  # -------------------------
+  # Optional: Aggregate reports (run after all)
+  # -------------------------
+  aggregate:
+    name: Aggregate & Notify
+    runs-on: ubuntu-latest
+    needs: [codeql, semgrep, gitleaks, dependency-scan, zap_scan]
+    steps:
+      - name: Create summary
+        run: |
+          echo "Security pipeline completed. Artifacts: CodeQL (Security tab), Semgrep, Gitleaks, npm-audit, ZAP."
+      - name: Upload summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-summary
+          path: .
