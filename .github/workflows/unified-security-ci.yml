@@ -143,16 +143,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure SITE_URL secret exists
+      - name: Check SITE_URL secret
+        id: check_url
         run: |
           if [ -z "${{ secrets.SITE_URL }}" ]; then
-            echo "SITE_URL secret is not set. Skipping ZAP scan."
-            echo "::warning::ZAP scan requires SITE_URL secret to be set in repository settings"
-            exit 0  # Skip rather than fail if SITE_URL not set
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "::notice::SITE_URL secret not set. Skipping ZAP scan."
+            exit 0
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Run OWASP ZAP baseline
+        if: steps.check_url.outputs.skip != 'true'
         run: |
+          docker pull ghcr.io/zaproxy/zaproxy:stable || echo "Failed to pull image, trying to run anyway"
           docker run --rm -v $(pwd):/zap/wrk/:rw \
             ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
             -t "${{ secrets.SITE_URL }}" \
@@ -185,7 +190,8 @@ jobs:
   aggregate:
     name: Aggregate & Notify
     runs-on: ubuntu-latest
-    needs: [codeql, semgrep, gitleaks, dependency-scan, zap_scan]
+    needs: [codeql, semgrep, gitleaks, dependency-scan]
+    if: always()  # Run even if some jobs fail or skip
     steps:
       - name: Create summary
         run: |
